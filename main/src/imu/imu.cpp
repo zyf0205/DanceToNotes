@@ -328,8 +328,8 @@ static const three_point_template_t three_point_templates[] = {
 
     // 举手：roll -50° -> -25° -> 0°
     {
-        .point1 = {90.0f, -80.0f, 25.0f, "起始点"},
-        .point2 = {45.0f, -40.0f, 20.0f, "中间点"},
+        .point1 = {40.0f, -80.0f, 25.0f, "起始点"},
+        .point2 = {20.0f, -40.0f, 20.0f, "中间点"},
         .point3 = {0.0f, 0.0f, 20.0f, "结束点"},
         .max_duration_ms = 1000,
         .action_id = HAND_DOWN,
@@ -414,26 +414,71 @@ simple_action_t detect_three_point_action(const imu_euler_t *euler, uint32_t *ex
     {
         const three_point_template_t *action_template = &three_point_templates[detector.current_template];
 
-        // 第一阶段不设超时，给足够时间到达第二个点
-        uint32_t elapsed_from_start = current_time - detector.start_time;
+        // 检查是否仍在第一个点附近
+        bool still_at_point1 = matches_point(euler, &action_template->point1);
 
-        // 如果在第一个点停留太久（比如5秒），重置
-        if (elapsed_from_start > 5000)
+        // 如果离开了当前第一个点，检查是否匹配其他第一个点
+        if (!still_at_point1)
         {
-            printf("⏰ 第1点停留过久，重置\n");
-            detector.state = POINT_STATE_IDLE;
-            break;
+            // 先检查是否到达当前模板的第二个点
+            if (matches_point(euler, &action_template->point2))
+            {
+                detector.state = POINT_STATE_POINT2;
+                detector.point2_time = current_time; // 从第二个点开始计时！
+
+                printf("🎯 第2点: %s (R=%.1f°) - 开始计时\n",
+                       action_template->point2.name,
+                       euler->roll);
+                break;
+            }
+
+            // 如果没到第二个点，检查是否匹配其他模板的第一个点
+            bool found_new_start = false;
+            for (int i = 0; i < num_templates; i++)
+            {
+                if (matches_point(euler, &three_point_templates[i].point1))
+                {
+                    // 切换到新的第一个点
+                    detector.current_template = i;
+                    detector.start_time = current_time;
+                    detector.point1_time = current_time;
+
+                    printf("🔄 切换到新起点: %s - %s (R=%.1f°)\n",
+                           three_point_templates[i].action_name,
+                           three_point_templates[i].point1.name,
+                           euler->roll);
+                    found_new_start = true;
+                    break;
+                }
+            }
+
+            // 如果既不在任何第一个点，也没到第二个点，重置为空闲
+            if (!found_new_start)
+            {
+                printf("🔄 离开第1点且无新匹配，重置\n");
+                detector.state = POINT_STATE_IDLE;
+            }
+        }
+        else
+        {
+            // 仍在第一个点，检查第二个点
+            if (matches_point(euler, &action_template->point2))
+            {
+                detector.state = POINT_STATE_POINT2;
+                detector.point2_time = current_time; // 从第二个点开始计时！
+
+                printf("🎯 第2点: %s (R=%.1f°) - 开始计时\n",
+                       action_template->point2.name,
+                       euler->roll);
+            }
         }
 
-        // 检查第二个点
-        if (matches_point(euler, &action_template->point2))
+        // 安全超时机制（防止卡死，但时间延长到10秒）
+        uint32_t elapsed_from_start = current_time - detector.start_time;
+        if (elapsed_from_start > 10000)
         {
-            detector.state = POINT_STATE_POINT2;
-            detector.point2_time = current_time; // 从第二个点开始计时！
-
-            printf("🎯 第2点: %s (R=%.1f°) - 开始计时\n",
-                   action_template->point2.name,
-                   euler->roll);
+            printf("⏰ 安全超时10秒，重置\n");
+            detector.state = POINT_STATE_IDLE;
         }
         break;
     }
@@ -489,7 +534,7 @@ simple_action_t detect_three_point_action(const imu_euler_t *euler, uint32_t *ex
     return ACTION_NONE;
 }
 
-// 显示三点检测状态
+// 改进版显示状态函数，显示动态切换信息
 void print_three_point_status(const imu_euler_t *euler)
 {
     printf("当前姿态: Roll=%.1f° Pitch=%.1f°\n", euler->roll, euler->pitch);
@@ -505,7 +550,10 @@ void print_three_point_status(const imu_euler_t *euler)
         if (detector.state == POINT_STATE_POINT1)
         {
             uint32_t elapsed = (esp_timer_get_time() / 1000) - detector.start_time;
-            printf("第1点已用时: %lums (无超时限制)\n", elapsed);
+            bool at_point1 = matches_point(euler, &action_template->point1);
+
+            printf("第1点状态: %s (已用时: %lums)\n",
+                   at_point1 ? "在点上" : "已离开", elapsed);
             printf("目标: 第2点 Roll=%.1f° (容差±%.1f°)\n",
                    action_template->point2.roll, action_template->point2.tolerance);
         }
@@ -523,14 +571,21 @@ void print_three_point_status(const imu_euler_t *euler)
 
     // 显示当前位置匹配情况
     const int num_templates = sizeof(three_point_templates) / sizeof(three_point_templates[0]);
+    int match_count = 0;
     for (int i = 0; i < num_templates; i++)
     {
-        const three_point_template_t *action_template = &three_point_templates[i];
+        const three_point_template_t *tmpl = &three_point_templates[i];
 
-        if (matches_point(euler, &action_template->point1))
+        if (matches_point(euler, &tmpl->point1))
         {
-            printf("可启动: %s (第1点匹配)\n", action_template->action_name);
+            printf("可启动: %s (第1点匹配)\n", tmpl->action_name);
+            match_count++;
         }
+    }
+
+    if (match_count == 0 && detector.state == POINT_STATE_IDLE)
+    {
+        printf("当前位置无匹配的起始点\n");
     }
 }
 
