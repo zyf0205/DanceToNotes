@@ -324,7 +324,18 @@ static const three_point_template_t three_point_templates[] = {
         .point3 = {0.0f, 0.0f, 20.0f, "结束点"},
         .max_duration_ms = 1000,
         .action_id = ACTION_TILT_UP,
-        .action_name = "向上倾斜"}};
+        .action_name = "向上倾斜"},
+
+    // 举手：roll -50° -> -25° -> 0°
+    {
+        .point1 = {90.0f, -80.0f, 25.0f, "起始点"},
+        .point2 = {45.0f, -40.0f, 20.0f, "中间点"},
+        .point3 = {0.0f, 0.0f, 20.0f, "结束点"},
+        .max_duration_ms = 1000,
+        .action_id = HAND_DOWN,
+        .action_name = "举手放下"},
+
+};
 
 // 检测状态
 typedef enum
