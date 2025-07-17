@@ -305,37 +305,26 @@ typedef struct
     const char *action_name;
 } three_point_template_t;
 
-// 定义动作模板
+// 定义动作模板 - 只保留这一个，删除第539行的重复定义
 static const three_point_template_t three_point_templates[] = {
 
     // 向下倾斜：roll 0° -> -25° -> -50°
     {
-        .point1 = {0.0f, 0.0f, 20.0f, "起始点"},
-        .point2 = {-25.0f, 0.0f, 15.0f, "中间点"},
-        .point3 = {-50.0f, 0.0f, 15.0f, "结束点"},
-        .max_duration_ms = 1000,
+        .point1 = {0.0f, 0.0f, 25.0f, "起始点"},   // 增大容差
+        .point2 = {-25.0f, 0.0f, 20.0f, "中间点"}, // 增大容差
+        .point3 = {-50.0f, 0.0f, 20.0f, "结束点"}, // 增大容差
+        .max_duration_ms = 1000,                   // 保留但仅用于显示
         .action_id = ACTION_TILT_DOWN,
         .action_name = "向下倾斜"},
 
-    // 向上倾斜：roll 0° -> 25° -> 50°
-    // {
-    //     .point1 = {0.0f, 0.0f, 20.0f, "起始点"},
-    //     .point2 = {25.0f, 0.0f, 15.0f, "中间点"},
-    //     .point3 = {50.0f, 0.0f, 15.0f, "结束点"},
-    //     .max_duration_ms = 1000,
-    //     .action_id = ACTION_TILT_UP,
-    //     .action_name = "向上倾斜"},
-
-    //
+    // 向上倾斜：roll -50° -> -25° -> 0°
     {
-        .point1 = {-50.0f, 0.0f, 20.0f, "起始点"},
-        .point2 = {-25.0f, 0.0f, 15.0f, "中间点"},
-        .point3 = {0.0f, 0.0f, 15.0f, "结束点"},
+        .point1 = {-50.0f, 0.0f, 25.0f, "起始点"},
+        .point2 = {-25.0f, 0.0f, 20.0f, "中间点"},
+        .point3 = {0.0f, 0.0f, 20.0f, "结束点"},
         .max_duration_ms = 1000,
         .action_id = ACTION_TILT_UP,
-        .action_name = "向上倾斜"}
-
-};
+        .action_name = "向上倾斜"}};
 
 // 检测状态
 typedef enum
@@ -367,15 +356,19 @@ static three_point_detector_t detector = {
     .point3_time = 0,
     .last_detection = 0};
 
-// 检查当前姿态是否匹配特征点
+// 改进的点匹配函数 - 只保留这一个，删除第560行的重复定义
 bool matches_point(const imu_euler_t *euler, const feature_point_t *point)
 {
     float roll_diff = fabs(euler->roll - point->roll);
     float pitch_diff = fabs(euler->pitch - point->pitch);
 
-    // 使用欧几里得距离判断
-    float distance = sqrt(roll_diff * roll_diff + pitch_diff * pitch_diff);
-    return distance <= point->tolerance;
+    // 对Roll轴给予更大的权重，因为主要动作是Roll变化
+    float weighted_distance = sqrt(
+        (roll_diff * roll_diff) +
+        (pitch_diff * pitch_diff * 0.5f) // Pitch误差权重降低
+    );
+
+    return weighted_distance <= point->tolerance;
 }
 
 // 三点检测主函数
@@ -383,12 +376,6 @@ simple_action_t detect_three_point_action(const imu_euler_t *euler, uint32_t *ex
 {
     uint32_t current_time = esp_timer_get_time() / 1000;
     const int num_templates = sizeof(three_point_templates) / sizeof(three_point_templates[0]);
-
-    // 冷却时间：上次检测完成后500ms内不检测新动作
-    if (current_time - detector.last_detection < 500)
-    {
-        return ACTION_NONE;
-    }
 
     switch (detector.state)
     {
@@ -415,12 +402,14 @@ simple_action_t detect_three_point_action(const imu_euler_t *euler, uint32_t *ex
     case POINT_STATE_POINT1:
     {
         const three_point_template_t *action_template = &three_point_templates[detector.current_template];
-        uint32_t elapsed = current_time - detector.start_time;
 
-        // 超时检查
-        if (elapsed > action_template->max_duration_ms)
+        // 第一阶段不设超时，给足够时间到达第二个点
+        uint32_t elapsed_from_start = current_time - detector.start_time;
+
+        // 如果在第一个点停留太久（比如5秒），重置
+        if (elapsed_from_start > 5000)
         {
-            printf("⏰ 动作超时，重置\n");
+            printf("⏰ 第1点停留过久，重置\n");
             detector.state = POINT_STATE_IDLE;
             break;
         }
@@ -429,12 +418,11 @@ simple_action_t detect_three_point_action(const imu_euler_t *euler, uint32_t *ex
         if (matches_point(euler, &action_template->point2))
         {
             detector.state = POINT_STATE_POINT2;
-            detector.point2_time = current_time;
+            detector.point2_time = current_time; // 从第二个点开始计时！
 
-            printf("🎯 第2点: %s (R=%.1f° 用时%lums)\n",
+            printf("🎯 第2点: %s (R=%.1f°) - 开始计时\n",
                    action_template->point2.name,
-                   euler->roll,
-                   current_time - detector.start_time);
+                   euler->roll);
         }
         break;
     }
@@ -442,12 +430,14 @@ simple_action_t detect_three_point_action(const imu_euler_t *euler, uint32_t *ex
     case POINT_STATE_POINT2:
     {
         const three_point_template_t *action_template = &three_point_templates[detector.current_template];
-        uint32_t elapsed = current_time - detector.start_time;
 
-        // 超时检查
-        if (elapsed > action_template->max_duration_ms)
+        // 从第二个点开始计算超时时间（1秒）
+        uint32_t elapsed_from_point2 = current_time - detector.point2_time;
+
+        // 超时检查：从第二个点开始1秒内必须完成
+        if (elapsed_from_point2 > 1000)
         {
-            printf("⏰ 动作超时，重置\n");
+            printf("⏰ 从第2点超时1秒，重置\n");
             detector.state = POINT_STATE_IDLE;
             break;
         }
@@ -456,16 +446,19 @@ simple_action_t detect_three_point_action(const imu_euler_t *euler, uint32_t *ex
         if (matches_point(euler, &action_template->point3))
         {
             detector.point3_time = current_time;
+
+            // 计算从第二个点到第三个点的时间作为执行时间
+            uint32_t execution_duration = current_time - detector.point2_time;
             uint32_t total_time = current_time - detector.start_time;
 
             // 动作完成！
-            *execution_time = total_time;
-            *note_type = match_note_duration(total_time);
+            *execution_time = execution_duration;
+            *note_type = match_note_duration(execution_duration);
 
             printf("🎯 第3点: %s (R=%.1f°)\n",
                    action_template->point3.name, euler->roll);
-            printf("✅ %s 完成! 总用时: %lums\n",
-                   action_template->action_name, total_time);
+            printf("✅ %s 完成! 执行时间: %lums (总时间: %lums)\n",
+                   action_template->action_name, execution_duration, total_time);
 
             detector.state = POINT_STATE_COMPLETED;
             detector.last_detection = current_time;
@@ -476,15 +469,9 @@ simple_action_t detect_three_point_action(const imu_euler_t *euler, uint32_t *ex
     }
 
     case POINT_STATE_COMPLETED:
-        // 等待离开第三个点，然后重置到空闲状态
-        {
-            const three_point_template_t *action_template = &three_point_templates[detector.current_template];
-            if (!matches_point(euler, &action_template->point3))
-            {
-                detector.state = POINT_STATE_IDLE;
-                printf("🔄 准备检测下一个动作\n");
-            }
-        }
+        // 立即重置，支持连续检测
+        detector.state = POINT_STATE_IDLE;
+        printf("🔄 立即准备下一个动作检测\n");
         break;
     }
 
@@ -504,22 +491,22 @@ void print_three_point_status(const imu_euler_t *euler)
         const three_point_template_t *action_template = &three_point_templates[detector.current_template];
         printf("当前动作: %s\n", action_template->action_name);
 
-        if (detector.state >= POINT_STATE_POINT1)
+        if (detector.state == POINT_STATE_POINT1)
         {
             uint32_t elapsed = (esp_timer_get_time() / 1000) - detector.start_time;
-            printf("已用时: %lums / %lums\n", elapsed, action_template->max_duration_ms);
+            printf("第1点已用时: %lums (无超时限制)\n", elapsed);
+            printf("目标: 第2点 Roll=%.1f° (容差±%.1f°)\n",
+                   action_template->point2.roll, action_template->point2.tolerance);
+        }
+        else if (detector.state == POINT_STATE_POINT2)
+        {
+            uint32_t elapsed_from_point2 = (esp_timer_get_time() / 1000) - detector.point2_time;
+            uint32_t remaining = elapsed_from_point2 < 1000 ? 1000 - elapsed_from_point2 : 0;
 
-            // 显示下一个目标点
-            if (detector.state == POINT_STATE_POINT1)
-            {
-                printf("目标: 第2点 Roll=%.1f° (容差±%.1f°)\n",
-                       action_template->point2.roll, action_template->point2.tolerance);
-            }
-            else if (detector.state == POINT_STATE_POINT2)
-            {
-                printf("目标: 第3点 Roll=%.1f° (容差±%.1f°)\n",
-                       action_template->point3.roll, action_template->point3.tolerance);
-            }
+            printf("第2点已用时: %lums / 1000ms (剩余: %lums)\n",
+                   elapsed_from_point2, remaining);
+            printf("目标: 第3点 Roll=%.1f° (容差±%.1f°)\n",
+                   action_template->point3.roll, action_template->point3.tolerance);
         }
     }
 
