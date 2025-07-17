@@ -326,7 +326,7 @@ static const three_point_template_t three_point_templates[] = {
         .action_id = ACTION_TILT_UP,
         .action_name = "向上倾斜"},
 
-    // 举手：roll -50° -> -25° -> 0°
+    // 举手放下：roll -50° -> -25° -> 0°
     {
         .point1 = {40.0f, -80.0f, 25.0f, "起始点"},
         .point2 = {20.0f, -40.0f, 20.0f, "中间点"},
@@ -334,6 +334,24 @@ static const three_point_template_t three_point_templates[] = {
         .max_duration_ms = 1000,
         .action_id = HAND_DOWN,
         .action_name = "举手放下"},
+
+    // 举手：roll -50° -> -25° -> 0°
+    {
+        .point1 = {10.0f, -10.0f, 25.0f, "起始点"},
+        .point2 = {20.0f, -40.0f, 20.0f, "中间点"},
+        .point3 = {40.0f, -80.0f, 20.0f, "结束点"},
+        .max_duration_ms = 1000,
+        .action_id = HAND_UP,
+        .action_name = "举手"},
+
+    // 平上举：roll -50° -> -25° -> 0°
+    {
+        .point1 = {10.0f, -60.0f, 25.0f, "起始点"},
+        .point2 = {40.0f, -60.0f, 20.0f, "中间点"},
+        .point3 = {80.0f, -60.0f, 20.0f, "结束点"},
+        .max_duration_ms = 1000,
+        .action_id = PING_SHANGJU,
+        .action_name = "平上举"},
 
 };
 

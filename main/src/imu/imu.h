@@ -30,6 +30,8 @@ extern "C"
         ACTION_TILT_UP = 0,
         ACTION_TILT_DOWN,
         HAND_DOWN,
+        HAND_UP,
+        PING_SHANGJU,
         ACTION_NONE
     } simple_action_t;
 
