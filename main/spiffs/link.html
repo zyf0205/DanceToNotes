@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+
+<head>
+    <meta charset="utf-8">
+    <title>WiFi 配网</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: "Segoe UI", Arial, sans-serif;
+            background: #f5f6fa;
+            margin: 0;
+        }
+
+        .container {
+            max-width: 350px;
+            margin: 60px auto;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px #ddd;
+            padding: 32px 24px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2d3436;
+            margin-bottom: 24px;
+        }
+
+        label {
+            display: block;
+            margin: 12px 0 6px 0;
+            color: #636e72;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #b2bec3;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #0984e3;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            margin-top: 20px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #74b9ff;
+        }
+
+        button:disabled {
+            background: #b2bec3;
+            cursor: not-allowed;
+        }
+
+        .msg {
+            text-align: center;
+            margin-top: 18px;
+            color: #00b894;
+        }
+
+        .error {
+            color: #d63031;
+        }
+
+        .success {
+            color: #00b894;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>WiFi 配网</h1>
+        <form id="wifiForm" autocomplete="off">
+            <label for="ssid">WiFi名称 (SSID)</label>
+            <input type="text" id="ssid" name="ssid" required placeholder="请输入WiFi名称">
+            <label for="password">WiFi密码</label>
+            <input type="password" id="password" name="password" required placeholder="请输入WiFi密码">
+            <button type="submit" id="submitBtn">确认配网</button>
+        </form>
+        <div class="msg" id="msg"></div>
+    </div>
+
+    <script>
+        document.getElementById('wifiForm').onsubmit = function (e) {
+            e.preventDefault();
+
+            var ssid = document.getElementById('ssid').value.trim();
+            var password = document.getElementById('password').value.trim();
+            var msg = document.getElementById('msg');
+            var submitBtn = document.getElementById('submitBtn');
+
+            if (!ssid) {
+                msg.textContent = '请输入WiFi名称';
+                msg.className = 'msg error';
+                return;
+            }
+
+            // 禁用按钮
+            submitBtn.disabled = true;
+            submitBtn.textContent = '配网中...';
+            msg.textContent = '正在发送配网信息...';
+            msg.className = 'msg';
+
+            fetch('/wifi-config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    ssid: ssid,
+                    password: password
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        msg.textContent = data.message;
+                        msg.className = 'msg success';
+
+                        // 配网成功后倒计时
+                        var countdown = 10;
+                        var countdownInterval = setInterval(function () {
+                            countdown--;
+                            msg.textContent = data.message + ' (' + countdown + '秒后设备重启)';
+                            if (countdown <= 0) {
+                                clearInterval(countdownInterval);
+                                msg.textContent = '设备已重启，请连接到路由器WiFi后访问新地址';
+                            }
+                        }, 1000);
+                    } else {
+                        msg.textContent = data.message;
+                        msg.className = 'msg error';
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = '确认配网';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    msg.textContent = '配网失败，请重试';
+                    msg.className = 'msg error';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '确认配网';
+                });
+        };
+    </script>
+</body>
+
+</html>

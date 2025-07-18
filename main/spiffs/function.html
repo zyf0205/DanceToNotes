@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+
+<head>
+    <meta charset="utf-8">
+    <title>设备控制台</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: "Segoe UI", Arial, sans-serif;
+            background: #f5f6fa;
+            margin: 0;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px #ddd;
+            padding: 24px;
+        }
+
+        h1 {
+            color: #2d3436;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .card {
+            background: #f8f9fa;
+            padding: 20px;
+            margin: 16px 0;
+            border-radius: 6px;
+            border-left: 4px solid #0984e3;
+        }
+
+        .status {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 12px 0;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            background: #0984e3;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 4px;
+        }
+
+        .btn:hover {
+            background: #74b9ff;
+        }
+
+        .btn:disabled {
+            background: #b2bec3;
+            cursor: not-allowed;
+        }
+
+        .btn-danger {
+            background: #d63031;
+        }
+
+        .btn-danger:hover {
+            background: #e17055;
+        }
+
+        .data {
+            font-family: monospace;
+            background: #2d3436;
+            color: #ddd;
+            padding: 12px;
+            border-radius: 4px;
+            margin: 8px 0;
+            font-size: 14px;
+            min-height: 60px;
+        }
+
+        .online {
+            color: #00b894;
+        }
+
+        .offline {
+            color: #d63031;
+        }
+
+        .log {
+            background: #2d3436;
+            color: #ddd;
+            padding: 12px;
+            border-radius: 4px;
+            margin: 8px 0;
+            font-size: 12px;
+            height: 120px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🎵 DanceToNotes 控制台</h1>
+
+        <div class="card">
+            <h3>设备状态</h3>
+            <div class="status">
+                <span>设备连接：</span>
+                <span id="device-status" class="online">在线</span>
+            </div>
+            <div class="status">
+                <span>数据更新：</span>
+                <span id="data-status" class="offline">已停止</span>
+            </div>
+            <div class="status">
+                <span>最后更新：</span>
+                <span id="last-update">--</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>实时传感器数据</h3>
+            <div class="data" id="sensor-data">
+                等待传感器数据...
+            </div>
+            <button class="btn" onclick="getSensorData()">获取数据</button>
+            <button class="btn" onclick="toggleAutoUpdate()" id="autoUpdateBtn">开始自动更新</button>
+        </div>
+
+        <div class="card">
+            <h3>设备控制</h3>
+            <button class="btn btn-danger" onclick="restartDevice()">重启设备</button>
+            <button class="btn btn-danger" onclick="resetWifi()">重置WiFi</button>
+        </div>
+
+        <div class="card">
+            <h3>操作日志</h3>
+            <div class="log" id="operation-log">
+                系统就绪...
+            </div>
+            <button class="btn" onclick="clearLog()">清空日志</button>
+        </div>
+    </div>
+
+    <script>
+        var isAutoUpdating = false;
+        var updateInterval = null;
+
+        function addLog(message) {
+            var log = document.getElementById('operation-log');
+            var timestamp = new Date().toLocaleTimeString();
+            log.innerHTML += '[' + timestamp + '] ' + message + '<br>';
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateLastUpdateTime() {
+            document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+        }
+
+        function getSensorData() {
+            fetch('/sensor-data')
+                .then(response => response.json())
+                .then(data => {
+                    var sensorDiv = document.getElementById('sensor-data');
+                    sensorDiv.innerHTML =
+                        '加速度计:<br>' +
+                        '&nbsp;&nbsp;X: ' + data.accel.x.toFixed(2) + '<br>' +
+                        '&nbsp;&nbsp;Y: ' + data.accel.y.toFixed(2) + '<br>' +
+                        '&nbsp;&nbsp;Z: ' + data.accel.z.toFixed(2) + '<br>' +
+                        '陀螺仪:<br>' +
+                        '&nbsp;&nbsp;X: ' + data.gyro.x.toFixed(2) + '<br>' +
+                        '&nbsp;&nbsp;Y: ' + data.gyro.y.toFixed(2) + '<br>' +
+                        '&nbsp;&nbsp;Z: ' + data.gyro.z.toFixed(2);
+
+                    document.getElementById('device-status').textContent = '在线';
+                    document.getElementById('device-status').className = 'online';
+                    updateLastUpdateTime();
+                    addLog('获取传感器数据成功');
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('device-status').textContent = '离线';
+                    document.getElementById('device-status').className = 'offline';
+                    addLog('获取传感器数据失败: ' + error.message);
+                });
+        }
+
+        function toggleAutoUpdate() {
+            var btn = document.getElementById('autoUpdateBtn');
+            var statusSpan = document.getElementById('data-status');
+
+            if (isAutoUpdating) {
+                clearInterval(updateInterval);
+                isAutoUpdating = false;
+                btn.textContent = '开始自动更新';
+                statusSpan.textContent = '已停止';
+                statusSpan.className = 'offline';
+                addLog('停止自动更新');
+            } else {
+                updateInterval = setInterval(getSensorData, 1000);
+                isAutoUpdating = true;
+                btn.textContent = '停止自动更新';
+                statusSpan.textContent = '运行中';
+                statusSpan.className = 'online';
+                addLog('开始自动更新传感器数据');
+                getSensorData(); // 立即获取一次数据
+            }
+        }
+
+        function restartDevice() {
+            if (confirm('确定要重启设备吗？')) {
+                fetch('/device-control', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'restart'
+                    })
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            addLog('设备重启命令已发送');
+                            alert('设备正在重启...');
+                        } else {
+                            addLog('设备重启失败: ' + data.message);
+                            alert('重启失败: ' + data.message);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        addLog('重启命令发送失败: ' + error.message);
+                    });
+            }
+        }
+
+        function resetWifi() {
+            if (confirm('确定要重置WiFi配置吗？设备将重新进入配网模式。')) {
+                fetch('/device-control', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'reset_wifi'
+                    })
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            addLog('WiFi配置重置成功');
+                            alert('WiFi配置已重置，设备将重新进入配网模式');
+                        } else {
+                            addLog('WiFi配置重置失败: ' + data.message);
+                            alert('重置失败: ' + data.message);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        addLog('WiFi重置命令发送失败: ' + error.message);
+                    });
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('operation-log').innerHTML = '日志已清空...<br>';
+        }
+
+        // 页面加载时获取一次数据
+        window.onload = function () {
+            getSensorData();
+        };
+    </script>
+</body>
+
+</html>
